@@ -12,6 +12,8 @@ Example of a conversation with Aristotle:
 <img src="https://github.com/vishwanath79/aristotle-whatsapp/blob/main/Aristotle.gif" width=90% height=90% alt="video of aristotle">
 </p>
 
+Link to the blog post :
+<a href="https://vishsubramanian.me/aristotle-the-whatsapp-ai-bot/" target="_blank">Aristotle - the Whatsapp AI Bot </a> 
 
 
 
