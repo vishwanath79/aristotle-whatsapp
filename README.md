@@ -27,6 +27,7 @@ a) Add a cred.py file with the following variables:
 * news_api_key (get the API key from newsapi.org)
 
 b) Install the requirements.txt file
+
 c) Run the app.py file
 
 
