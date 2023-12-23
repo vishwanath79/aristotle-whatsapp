@@ -15,6 +15,19 @@ Example of a conversation with Aristotle:
 Link to the blog post :
 <a href="https://vishsubramanian.me/aristotle-the-whatsapp-ai-bot/" target="_blank">Aristotle - the Whatsapp AI Bot </a> 
 
+To install:
+
+a) Add a cred.py file with the following variables:
+
+* OPENAI_API_KEY
+* TWILIO_ACCOUNT_SID ( you need to create a twilio account and get the SID)
+* TWILIO_AUTH_TOKEN (get the AUTH_TOKEN from your twilio account)
+* ASSISTANT_API (get the API from your Open AI playground)
+* TWILIO_FROM_NUMBER,TWILIO_TO_NUMBER (set the numbers in your twilio account)
+* news_api_key (get the API key from newsapi.org)
+
+b) Install the requirements.txt file
+c) Run the app.py file
 
 
 

@@ -57,6 +57,4 @@ def chat_with_gpt(question, conversation_history, personality):
     return answer
 
 
-# if __name__ == "__main__":
-#     chat_with_gpt("What is the news in peru", [],
-#                   "I am a very friendly chatbot.")
+
