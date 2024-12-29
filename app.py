@@ -1,161 +1,173 @@
-from cred import OPENAI_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, ASSISTANT_API,TWILIO_FROM_NUMBER,TWILIO_TO_NUMBER
 import json
-from flask import Flask, request, render_template
-from openai import OpenAI
 import time
-from generic_chat import chat_with_gpt
-from generic_news import fetch_news
-import sys
-from pathlib import Path
+import logging
 import datetime
+from pathlib import Path
+from flask import Flask, request
+from openai import OpenAI
 from twilio.rest import Client
 from twilio.twiml.messaging_response import MessagingResponse
-import logging
 
-senddate = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+from cred import (
+    OPENAI_API_KEY,
+    TWILIO_ACCOUNT_SID,
+    TWILIO_AUTH_TOKEN,
+    ASSISTANT_API,
+    TWILIO_FROM_NUMBER,
+    TWILIO_TO_NUMBER,
+    TWILIO_TO_NUMBER2,
+    TWILIO_TO_NUMBER3
+)
+from generic_chat import chat_with_gpt
+from generic_news import fetch_news
+
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    filename="logs/openailog.txt",
+    filemode="a+",
+    format="%(asctime)-15s %(levelname)-8s %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+# Initialize Flask app
 app = Flask(__name__)
 
-client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-openaiclient = OpenAI(api_key=OPENAI_API_KEY)
+# Initialize clients
+twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Start tracking previous interactions
+# Global variables
 conversation_history = []
-assistant_id = ASSISTANT_API
+WHATSAPP_PREFIX = 'whatsapp:+'
 
-# Establish a correspondence between the assistant's function names and your Python functions
+# Load instructions
+try:
+    with open('instructions.txt', 'r') as file:
+        instructions = file.read().strip()
+except FileNotFoundError:
+    logger.error("Instructions file not found")
+    instructions = "Default AI assistant instructions"
 
+# Available functions mapping
 functions = {
     'get_news': fetch_news,
-
 }
 
-# Read in the personality context from the file 'instructions.txt' 
-
-with open('instructions.txt', 'r') as file:
-    instructions = file.read().strip()
-
-@app.route("/aristotle", methods=["POST", "GET"])
+@app.route("/aristotle", methods=["POST"])
 def wa_reply():
-    twilio_response = MessagingResponse()
-    reply = twilio_response.message()
-
-    answer = chat_with_bot()
-    
-    numbers = [TWILIO_TO_NUMBER, TWILIO_TO_NUMBER2,TWILIO_TO_NUMBER3]  
-    # add all the numbers to which you want to send a message in this list
-
-    for number in numbers:
-        message = client.messages.create(
-        body=answer,
-        from_='whatsapp:+'+TWILIO_FROM_NUMBER,
-        to='whatsapp:+'+number,
-    )
-
-    
-    message = client.messages.create(
-        body=answer,
-        from_='whatsapp:+'+TWILIO_FROM_NUMBER,
-        to='whatsapp:+'+TWILIO_TO_NUMBER
+    """Handle incoming WhatsApp messages and return AI response"""
+    try:
+        answer = chat_with_bot()
+        numbers = [TWILIO_TO_NUMBER, TWILIO_TO_NUMBER2, TWILIO_TO_NUMBER3]
         
+        # Send message to all configured numbers
+        for number in numbers:
+            message = twilio_client.messages.create(
+                body=answer,
+                from_=f'{WHATSAPP_PREFIX}{TWILIO_FROM_NUMBER}',
+                to=f'{WHATSAPP_PREFIX}{number}'
+            )
+            logger.info(f"Message sent to {number}: {message.sid}")
         
-    )
-
-    print(message.sid)
-    logging.basicConfig(level=logging.DEBUG, filename="/home/vish/Projects/logs/openailog.txt", filemode="a+",
-                        format="%(asctime)-15s %(levelname)-8s %(message)s")
-    logger = logging.getLogger()
-    logger.debug((answer))
-    return message.sid
-
+        return str(message.sid)
+    except Exception as e:
+        logger.error(f"Error in wa_reply: {str(e)}")
+        return "Error processing request", 500
 
 def chat_with_bot():
-   # Obtain the request's user message
-    question = request.form.get('Body', '').lower()
-    print("user query ", question)
-
-    thread = openaiclient.beta.threads.create()
+    """Handle incoming messages and return AI response"""
     try:
-       # Insert user message into the thread
-        message = openaiclient.beta.threads.messages.create(
-            thread_id=thread.id,
-            role="user",
-            content=question
-        )
+        # Obtain the request's user message
+        question = request.form.get('Body', '').lower()
+        print("user query ", question)
 
-        # Run the assistant
-        run = openaiclient.beta.threads.runs.create(
-            thread_id=thread.id,
-            assistant_id=assistant_id,
-            instructions=instructions
-        )
+        thread = openai_client.beta.threads.create()
+        try:
+            # Insert user message into the thread
+            message = openai_client.beta.threads.messages.create(
+                thread_id=thread.id,
+                role="user",
+                content=question
+            )
 
-        # Show assistant response
-        run = openaiclient.beta.threads.runs.retrieve(
-            thread_id=thread.id,
-            run_id=run.id
-        )
+            # Run the assistant
+            run = openai_client.beta.threads.runs.create(
+                thread_id=thread.id,
+                assistant_id=ASSISTANT_API,
+                instructions=instructions
+            )
 
-        # Pause until it is not longer queued
-        count = 0
-        while (run.status == "queued" or run.status == "in_progress" and count < 5):
-            time.sleep(1)
-            run = openaiclient.beta.threads.runs.retrieve(
+            # Show assistant response
+            run = openai_client.beta.threads.runs.retrieve(
                 thread_id=thread.id,
                 run_id=run.id
             )
-            count = count + 1
 
-        if run.status == "requires_action":
+            # Pause until it is not longer queued
+            count = 0
+            while (run.status == "queued" or run.status == "in_progress" and count < 5):
+                time.sleep(1)
+                run = openai_client.beta.threads.runs.retrieve(
+                    thread_id=thread.id,
+                    run_id=run.id
+                )
+                count = count + 1
 
-            # Obtain the tool outputs by running the necessary functions
-            aristotle_output = run_functions(run.required_action)
-            aristotle_output = run_functions(run.required_action)
+            if run.status == "requires_action":
 
-            # Submit the outputs to the Assistant
-            run = openaiclient.beta.threads.runs.submit_aristotle_output(
-                thread_id=thread.id,
-                run_id=run.id,
-                aristotle_output=aristotle_output
+                # Obtain the tool outputs by running the necessary functions
+                aristotle_output = run_functions(run.required_action)
+                aristotle_output = run_functions(run.required_action)
+
+                # Submit the outputs to the Assistant
+                run = openai_client.beta.threads.runs.submit_aristotle_output(
+                    thread_id=thread.id,
+                    run_id=run.id,
+                    aristotle_output=aristotle_output
+                )
+
+            # Wait until it is not queued
+            count = 0
+            while (run.status == "queued" or run.status == "in_progress" or run.status == "requires_action" and count < 5):
+                time.sleep(2)
+                run = openai_client.beta.threads.runs.retrieve(
+                    thread_id=thread.id,
+                    run_id=run.id
+                )
+                count = count + 1
+
+            # After run is completed, fetch thread messages
+            messages = openai_client.beta.threads.messages.list(
+                thread_id=thread.id
             )
 
-        # Wait until it is not queued
-        count = 0
-        while (run.status == "queued" or run.status == "in_progress" or run.status == "requires_action" and count < 5):
-            time.sleep(2)
-            run = openaiclient.beta.threads.runs.retrieve(
-                thread_id=thread.id,
-                run_id=run.id
-            )
-            count = count + 1
+            # TODO look for method call in data in messages and execute method
+            print(f"---------------------------------------------")
+            print(f"THREAD MESSAGES: {messages}")
 
-        # After run is completed, fetch thread messages
-        messages = openaiclient.beta.threads.messages.list(
-            thread_id=thread.id
-        )
+            # With every message, include user's message into the conversation history
+            for message in messages:  # Loop through the paginated messages
+                system_message = {"role": "system",
+                                  "content": message.content[0].text.value}
+                # Append to the conversation history
+                conversation_history.append(system_message)
 
-        # TODO look for method call in data in messages and execute method
-        print(f"---------------------------------------------")
-        print(f"THREAD MESSAGES: {messages}")
+            # Get the response from ChatGPT
+            answer = chat_with_bot(question, conversation_history, instructions)
 
-        # With every message, include user's message into the conversation history
-   
-        for message in messages:  # Loop through the paginated messages
-            system_message = {"role": "system",
-                              "content": message.content[0].text.value}
-            # Append to the conversation history
-            conversation_history.append(system_message)
+            print(f"---------------------------------------------")
+            print(f"ARISTOTLE: {answer}")
+            return str(answer)
+        except Exception as e:
+            answer = 'Sorry, I could not process that.'
+            print(f"An error occurred: {e}")
 
-        # Get the response from ChatGPT
-        answer = chat_with_bot(question, conversation_history, instructions)
-
-        print(f"---------------------------------------------")
-        print(f"ARISTOTLE: {answer}")
         return str(answer)
     except Exception as e:
-        answer = 'Sorry, I could not process that.'
-        print(f"An error occurred: {e}")
+        logger.error(f"Error in chat_with_bot: {str(e)}")
+        return "Error processing request", 500
 
-    
 # To make the necessary function calls and return their outputs as JSON strings
 def run_functions(required_actions):
     aristotle_output = []
@@ -180,7 +192,5 @@ def run_functions(required_actions):
 
     return aristotle_output
 
-
-# Run the interaction
 if __name__ == "__main__":
     app.run(port=8001, debug=True)

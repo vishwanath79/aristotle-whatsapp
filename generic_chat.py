@@ -1,60 +1,70 @@
-import aiohttp
-from openai import AsyncOpenAI
+"""
+Chat module for Aristotle WhatsApp bot.
+Handles interactions with OpenAI's GPT model.
+"""
+
+from typing import List, Dict, Any
 import logging
-from twilio.rest import Client
-from twilio.twiml.messaging_response import MessagingResponse
-import os
-import openai
-from flask import Flask, request
 from openai import OpenAI
-import sys
-from pathlib import Path
+from cred import OPENAI_API_KEY
 
-#sys.path[0] = str(Path(sys.path[0]).parent)
-from cred import OPENAI_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN
-client = OpenAI(api_key=OPENAI_API_KEY)
+logger = logging.getLogger(__name__)
 
-
-def chat_with_gpt(question, conversation_history, personality):
+def chat_with_gpt(
+    question: str, 
+    conversation_history: List[Dict[str, str]], 
+    personality: str
+) -> str:
     """
-    Function to interact with ChatGPT.
+    Interact with ChatGPT to get responses.
 
     Args:
-    - question (str): The question to ask ChatGPT.
-    - conversation_history (list): List containing conversation history.
+        question (str): The user's question
+        conversation_history (list): List of previous messages
+        personality (str): The AI's personality instructions
 
     Returns:
-    - str: Answer from ChatGPT.
+        str: The AI's response
+
+    Raises:
+        Exception: If there's an error communicating with OpenAI
     """
+    try:
+        client = OpenAI(api_key=OPENAI_API_KEY)
 
-    # Ensure conversation history doesn't exceed the token limit (e.g., 4096 tokens)
-    while sum(len(message['content'].split()) for message in conversation_history) > 4096:
-        conversation_history.pop(0)  # Remove the oldest message
+        # Manage conversation history token limit
+        while sum(len(msg['content'].split()) for msg in conversation_history) > 4096:
+            conversation_history.pop(0)
 
-    # Create a message with the user's question
-    user_message = {"role": "user", "content": question}
+        # Add user's question to conversation
+        conversation_history.append({
+            "role": "user",
+            "content": question
+        })
 
-    # Add the user's message to the conversation history
-    conversation_history.append(user_message)
+        # Get response from OpenAI
+        response = client.chat.completions.create(
+            model="gpt-4-1106-preview",
+            messages=[
+                {"role": "system", "content": personality},
+                *conversation_history,
+            ]
+        )
 
-    # Use OpenAI to get an answer
-    response = client.chat.completions.create(
-        model="gpt-4-1106-preview",
-        messages=[
-            {"role": "system", "content": personality},
-            *conversation_history,
-        ]
-    )
+        answer = response.choices[0].message.content
+        logger.debug(f"ChatGPT response: {answer}")
 
-    # Extract the answer from the response
-    answer = response.choices[0].message.content
-    print("#######This is the generic  chat response")
+        # Update conversation history
+        conversation_history.append({
+            "role": "assistant",
+            "content": answer
+        })
 
-    # Add the model's response to the chat windows conversation historyha
-    conversation_history.append({"role": "assistant", "content": answer})
-    print(answer)
+        return answer
 
-    return answer
+    except Exception as e:
+        logger.error(f"Error in chat_with_gpt: {str(e)}")
+        return "I apologize, but I'm having trouble processing your request."
 
 
 
